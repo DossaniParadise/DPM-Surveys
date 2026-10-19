@@ -84,6 +84,14 @@
   .wall-card .who{font-size:14px;opacity:.65;margin-top:12px}
   .wall-empty{padding:80px 40px;text-align:center;font-size:24px;opacity:.6}
   @keyframes pop{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
+  /* bare mode: no header, tighter — for embedding in a slide */
+  body.bare .wall-head{display:none}
+  body.bare .wall-grid{padding:14px 16px 24px;gap:12px;grid-template-columns:1fr}
+  body.bare .wall-card{padding:14px 16px;border-radius:10px}
+  body.bare .wall-card .txt{font-size:clamp(16px,2.6vw,22px)}
+  body.bare .wall-card .who{font-size:13px;margin-top:8px}
+  body.bare .wall-empty{padding:40px 16px;font-size:18px}
+  body.bare.wall{--wbg:#000}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
@@ -253,15 +261,20 @@ async function renderPage(p){
    #/wall/3            dark, newest first
    #/wall/3?light=1    light background
    #/wall/3?names=0    hide names
-   #/wall/3?max=12     show at most 12 responses                     */
+   #/wall/3?max=12     show at most 12 responses
+   #/wall/3?bare=1     answers only, no question header (automatic when
+                       embedded in PowerPoint / an iframe; ?head=1 overrides) */
 async function renderWall(p){
   const params=new URLSearchParams((location.hash.split("?")[1]||""));
   const light=params.get("light")==="1", showNames=params.get("names")!=="0", max=+params.get("max")||0;
+  const embedded = window.self!==window.top;
+  const bare = params.get("head")==="1" ? false : (params.get("bare")==="1" || embedded);
+  document.body.classList.toggle("bare",bare);
   const all=await loadConfig();
   const cfg=all.pages[p];
   if(!cfg){ app.innerHTML=`<div class="wall-empty">Page ${esc(p)} doesn't exist.</div>`; return; }
   const accent=cfg.color||"#7fb8a4";
-  document.body.style.setProperty("--wbg", light?"#f6f5f1":"#111");
+  document.body.style.setProperty("--wbg", light?"#f6f5f1":(bare?"#000":"#111"));
   document.body.style.setProperty("--wink", light?"#1c1b19":"#fff");
   document.body.style.setProperty("--wacc", accent);
   app.innerHTML=`
@@ -325,7 +338,7 @@ async function renderAdmin(){
       <h2>Live wall (for projecting / PowerPoint)</h2>
       <p class="muted">Each page has a full-screen view that updates the moment someone types. Open one and copy its address into PowerPoint (see notes) or put it on a second screen.</p>
       <div id="walls" class="grid"></div>
-      <p class="muted" style="margin-top:12px">Options you can add to the address: <code>?light=1</code> white background · <code>?names=0</code> hide names · <code>?max=12</code> show only the newest 12.</p>
+      <p class="muted" style="margin-top:12px">When embedded in a slide the wall automatically shows answers only, on black, with no question header. Options you can add to the address: <code>?bare=1</code> force answers-only in a normal browser · <code>?head=1</code> force the header on · <code>?names=0</code> hide names · <code>?max=12</code> newest 12 only · <code>?light=1</code> white background.</p>
     </div>
     <div class="card">
       <h2>Responses</h2>
