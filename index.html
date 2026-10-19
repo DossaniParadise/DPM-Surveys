@@ -69,6 +69,21 @@
   .qr .box img,.qr .box canvas{display:block}
   .qr .lbl{font-weight:600;margin-top:8px}
   .qr .url{font-size:11px;color:var(--muted);word-break:break-all}
+
+  /* live wall (for embedding / projecting) */
+  body.wall{background:var(--wbg,#111);color:var(--wink,#fff)}
+  body.wall .wrap{max-width:none;padding:0}
+  .wall-head{position:sticky;top:0;padding:28px 40px 20px;background:var(--wbg,#111);border-bottom:1px solid rgba(255,255,255,.15);z-index:2}
+  .wall-head .tag{font-size:14px;letter-spacing:.1em;text-transform:uppercase;opacity:.7}
+  .wall-head .q{font-size:clamp(24px,3.4vw,44px);font-weight:700;line-height:1.2;margin-top:6px;white-space:pre-wrap}
+  .wall-head .meta{font-size:15px;opacity:.7;margin-top:10px}
+  .wall-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr));gap:18px;padding:28px 40px 60px}
+  .wall-card{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:20px 22px;animation:pop .5s ease-out}
+  .wall-card.fresh{box-shadow:0 0 0 2px var(--wacc,#7fb8a4)}
+  .wall-card .txt{font-size:clamp(17px,1.6vw,24px);line-height:1.45;white-space:pre-wrap;word-break:break-word}
+  .wall-card .who{font-size:14px;opacity:.65;margin-top:12px}
+  .wall-empty{padding:80px 40px;text-align:center;font-size:24px;opacity:.6}
+  @keyframes pop{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
@@ -144,8 +159,10 @@ let unsub=null;
 function route(){
   if(unsub){unsub();unsub=null}
   if(!db) return;
-  const h = location.hash.replace(/^#\/?/,"");
+  const h = location.hash.replace(/^#\/?/,"").split("?")[0];
+  document.body.classList.toggle("wall", h.startsWith("wall/"));
   if(h==="admin") return renderAdmin();
+  if(/^wall\/\d+$/.test(h)) return renderWall(h.slice(5));
   if(/^\d+$/.test(h)) return renderPage(h);
   renderIndex();
 }
@@ -232,6 +249,43 @@ async function renderPage(p){
   }
 }
 
+/* ---------- live wall ----------
+   #/wall/3            dark, newest first
+   #/wall/3?light=1    light background
+   #/wall/3?names=0    hide names
+   #/wall/3?max=12     show at most 12 responses                     */
+async function renderWall(p){
+  const params=new URLSearchParams((location.hash.split("?")[1]||""));
+  const light=params.get("light")==="1", showNames=params.get("names")!=="0", max=+params.get("max")||0;
+  const all=await loadConfig();
+  const cfg=all.pages[p];
+  if(!cfg){ app.innerHTML=`<div class="wall-empty">Page ${esc(p)} doesn't exist.</div>`; return; }
+  const accent=cfg.color||"#7fb8a4";
+  document.body.style.setProperty("--wbg", light?"#f6f5f1":"#111");
+  document.body.style.setProperty("--wink", light?"#1c1b19":"#fff");
+  document.body.style.setProperty("--wacc", accent);
+  app.innerHTML=`
+    <div class="wall-head" style="border-top:8px solid ${esc(accent)}">
+      <div class="tag">Page ${p}</div>
+      <div class="q">${esc(cfg.question)||"<span style='opacity:.5'>No question set</span>"}</div>
+      <div class="meta" id="meta"></div>
+    </div>
+    <div class="wall-grid" id="grid"><div class="wall-empty">Waiting for responses…</div></div>`;
+  const grid=document.getElementById("grid"), meta=document.getElementById("meta");
+  const seen=new Set(); let first=true;
+  unsub=onSnapshot(query(collection(db,"responses"),where("page","==",p)),snap=>{
+    let rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(r=>(r.text||"").trim())
+      .sort((a,b)=>(b.updatedAt?.toMillis?.()||0)-(a.updatedAt?.toMillis?.()||0));
+    if(max) rows=rows.slice(0,max);
+    meta.textContent=`${rows.length} response${rows.length===1?"":"s"}${cfg.deadline?` · ${isOpen(cfg)?countdown(cfg.deadline):"closed"}`:""}`;
+    if(!rows.length){ grid.innerHTML=`<div class="wall-empty">Waiting for responses…</div>`; return; }
+    grid.innerHTML=rows.map(r=>`<div class="wall-card ${!first&&!seen.has(r.id)?"fresh":""}">
+      <div class="txt">${esc(r.text)}</div>${showNames?`<div class="who">— ${esc(r.name)}</div>`:""}</div>`).join("");
+    rows.forEach(r=>seen.add(r.id)); first=false;
+    setTimeout(()=>grid.querySelectorAll(".fresh").forEach(e=>e.classList.remove("fresh")),4000);
+  },e=>{grid.innerHTML=`<div class="wall-empty">${esc(e.message)}</div>`});
+}
+
 /* ---------- admin ---------- */
 async function renderAdmin(){
   if(!isAdmin()){
@@ -268,6 +322,12 @@ async function renderAdmin(){
       <div class="qrgrid" id="qrs"></div>
     </div>
     <div class="card">
+      <h2>Live wall (for projecting / PowerPoint)</h2>
+      <p class="muted">Each page has a full-screen view that updates the moment someone types. Open one and copy its address into PowerPoint (see notes) or put it on a second screen.</p>
+      <div id="walls" class="grid"></div>
+      <p class="muted" style="margin-top:12px">Options you can add to the address: <code>?light=1</code> white background · <code>?names=0</code> hide names · <code>?max=12</code> show only the newest 12.</p>
+    </div>
+    <div class="card">
       <h2>Responses</h2>
       <div class="tabs" id="tabs"></div>
       <div id="list" class="muted">Select a page.</div>
@@ -279,7 +339,7 @@ async function renderAdmin(){
   function paintEditors(){
     editors.innerHTML = draft.order.length ? draft.order.map(id=>{ const pg=draft.pages[id]; return `
       <div class="editor" data-id="${id}">
-        <div class="head"><span class="muted">Page ${id} · <a href="#/${id}">view</a></span>
+        <div class="head"><span class="muted">Page ${id} · <a href="#/${id}">view</a> · <a href="#/wall/${id}" target="_blank">live wall ↗</a></span>
           <button class="danger" type="button" data-rm="${id}" style="padding:4px 10px;font-size:13px">Remove</button></div>
         <label>Question</label><textarea data-q="${id}" style="min-height:70px">${esc(pg.question)}</textarea>
         <label>Deadline (your local time; blank = no deadline)</label>
@@ -323,7 +383,7 @@ async function renderAdmin(){
     st.textContent="Saving…";
     const out={order:[...draft.order],pages:{}};
     for(const id of draft.order){ const pg=draft.pages[id]; out.pages[id]={question:(pg.question||"").trim(),deadline:pg.deadline||"",color:pg.color||""}; }
-    try{ await setDoc(doc(db,"config","pages"),out); saved=JSON.stringify(draft); st.textContent="Saved."; paintQRs(); paintTabs(); }
+    try{ await setDoc(doc(db,"config","pages"),out); saved=JSON.stringify(draft); st.textContent="Saved."; paintQRs(); paintWalls(); paintTabs(); }
     catch(e){ st.innerHTML=`<span class="err">Save failed: ${esc(e.message)}</span>` }
   };
 
@@ -340,6 +400,17 @@ async function renderAdmin(){
       const src=box.querySelector("canvas")?.toDataURL("image/png") || box.querySelector("img")?.src; if(!src) return;
       const a=document.createElement("a"); a.href=src; a.download=`qr-${b.dataset.dl||"home"}.png`; a.click();
     });
+  }
+
+  /* --- wall links --- */
+  function paintWalls(){
+    const w=document.getElementById("walls");
+    w.innerHTML=savedOrder().map(id=>{ const url=siteBase()+"#/wall/"+id; return `
+      <div class="row" style="justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:10px 14px">
+        <div><strong>Page ${id}</strong> <span class="muted" style="word-break:break-all">${esc(url)}</span></div>
+        <div class="row"><button class="ghost" type="button" data-copy="${esc(url)}">Copy link</button><a href="#/wall/${id}" target="_blank"><button type="button">Open</button></a></div>
+      </div>`}).join("")||`<p class="muted">No pages.</p>`;
+    w.querySelectorAll("[data-copy]").forEach(b=>b.onclick=async()=>{ try{ await navigator.clipboard.writeText(b.dataset.copy); b.textContent="Copied"; setTimeout(()=>b.textContent="Copy link",1500);}catch{ prompt("Copy this link:",b.dataset.copy) } });
   }
 
   /* --- responses --- */
@@ -367,7 +438,7 @@ async function renderAdmin(){
   }
 
   document.getElementById("out").onclick=e=>{e.preventDefault();sessionStorage.removeItem("admin");location.hash="#/"};
-  paintEditors(); paintQRs(); paintTabs();
+  paintEditors(); paintQRs(); paintWalls(); paintTabs();
 }
 </script>
 </body>
