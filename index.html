@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Responses</title>
+<style>
+  :root{
+    --bg:#f6f5f1; --card:#fff; --text:#1c1b19; --muted:#6b6962; --line:#e3e1da;
+    --accent:#2f5d50; --accent-ink:#fff; --danger:#a33a2e; --ok:#2f7a4a;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#161614;--card:#1f1f1c;--text:#eceae4;--muted:#9a978e;--line:#33322e;--accent:#7fb8a4;--accent-ink:#0e1a16}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:720px;margin:0 auto;padding:40px 16px 80px}
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px}
+  header a{color:var(--muted);text-decoration:none;font-size:14px}
+  header a:hover{color:var(--text)}
+  h1{font-size:28px;margin:0 0 6px;letter-spacing:-.01em}
+  h2{font-size:20px;margin:0 0 12px}
+  .muted{color:var(--muted);font-size:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px;margin-bottom:16px}
+  .grid{display:grid;gap:12px}
+  .pagelink{display:flex;justify-content:space-between;align-items:center;gap:12px;text-decoration:none;color:inherit;padding:18px 20px}
+  .pagelink:hover{border-color:var(--accent)}
+  .pagelink .n{font-size:13px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+  .pagelink .q{font-weight:600;margin-top:2px}
+  .pill{font-size:12px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .pill.open{color:var(--ok);border-color:var(--ok)}
+  .pill.closed{color:var(--danger);border-color:var(--danger)}
+  label{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px}
+  input,textarea{width:100%;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+  textarea{min-height:200px;resize:vertical;line-height:1.6}
+  input:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  textarea[disabled],input[disabled]{opacity:.7;background:rgba(127,127,127,.06)}
+  button{font:inherit;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);padding:9px 16px;border-radius:8px}
+  button.ghost{background:transparent;color:var(--text);border-color:var(--line)}
+  button:disabled{opacity:.5;cursor:default}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .status{font-size:13px;color:var(--muted);min-height:1.2em}
+  .question{font-size:22px;font-weight:600;line-height:1.35;margin:4px 0 8px;white-space:pre-wrap}
+  .deadline{font-size:14px;color:var(--muted)}
+  .deadline strong{color:var(--text)}
+  .resp{border-top:1px solid var(--line);padding:14px 0}
+  .resp:first-of-type{border-top:0}
+  .resp .who{font-weight:600}
+  .resp .when{font-size:12px;color:var(--muted);margin-left:8px}
+  .resp .txt{white-space:pre-wrap;margin-top:6px}
+  .err{color:var(--danger);font-size:14px}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+  .tabs button{padding:6px 12px}
+  .tabs button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .tabs button:not(.on){background:transparent;color:var(--text);border-color:var(--line)}
+  code{font-size:13px;background:rgba(127,127,127,.12);padding:2px 6px;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><p class="muted">Loading…</p></div>
+
+<script type="module">
+/* ========================================================================
+   1. FIREBASE CONFIG — paste the config object from your Firebase project
+      (Project settings → Your apps → Web app → firebaseConfig).
+   ======================================================================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyBaQwuS2P04Xutoe0PaTRoba7CKbqqHR-Q",
+  authDomain: "dpm-surveys.firebaseapp.com",
+  projectId: "dpm-surveys",
+  storageBucket: "dpm-surveys.firebasestorage.app",
+  messagingSenderId: "84434479748",
+  appId: "1:84434479748:web:c2f2869eff9640a71d30d1"
+};
+
+/* Admin code. NOTE: anything in this file is visible to anyone who views
+   source. This gate keeps casual users out of the admin screen; real
+   protection for your data comes from the Firestore rules (see README
+   notes in chat). */
+const ADMIN_CODE = "LG2026";
+const PAGES = ["1","2","3","4"];
+
+/* ======================================================================== */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, collection, query, where,
+         onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const app = document.getElementById("app");
+let db;
+try {
+  db = getFirestore(initializeApp(firebaseConfig));
+} catch (e) {
+  app.innerHTML = `<div class="card"><p class="err">Firebase failed to initialise. Paste your firebaseConfig into index.html.</p><p class="muted">${esc(String(e))}</p></div>`;
+}
+
+/* ---------- helpers ---------- */
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function slug(s){return s.trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"").slice(0,60)}
+function fmtDate(iso){ if(!iso) return "none set"; const d=new Date(iso); return isNaN(d)?"invalid":d.toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"}) }
+function isOpen(cfg){ if(!cfg?.deadline) return true; return Date.now() < new Date(cfg.deadline).getTime() }
+function toLocalInput(iso){ if(!iso) return ""; const d=new Date(iso); const p=n=>String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}` }
+function countdown(iso){
+  const ms = new Date(iso).getTime()-Date.now(); if(ms<=0) return "closed";
+  const m=Math.floor(ms/60000), h=Math.floor(m/60), d=Math.floor(h/24);
+  if(d>0) return `${d}d ${h%24}h left`; if(h>0) return `${h}h ${m%60}m left`; return `${m}m left`;
+}
+const isAdmin = ()=> sessionStorage.getItem("admin")==="1";
+
+/* ---------- data ---------- */
+async function loadConfig(){
+  const snap = await getDoc(doc(db,"config","pages"));
+  const data = snap.exists()? snap.data() : {};
+  for(const p of PAGES) data[p] ??= {question:"", deadline:""};
+  return data;
+}
+
+/* ---------- routing ---------- */
+let unsub=null;
+function route(){
+  if(unsub){unsub();unsub=null}
+  if(!db) return;
+  const h = location.hash.replace(/^#\/?/,"");
+  if(h==="admin") return renderAdmin();
+  if(PAGES.includes(h)) return renderPage(h);
+  renderIndex();
+}
+window.addEventListener("hashchange",route);
+route();
+
+/* ---------- index ---------- */
+async function renderIndex(){
+  const cfg = await loadConfig();
+  app.innerHTML = `
+    <header><div><h1>Questions</h1><p class="muted">Pick a page to respond.</p></div>
+      <a href="#/admin">${isAdmin()?"Admin":"Admin login"}</a></header>
+    <div class="grid">
+    ${PAGES.map(p=>{
+      const c=cfg[p]; const open=isOpen(c);
+      return `<a class="card pagelink" href="#/${p}">
+        <div><div class="n">Page ${p}</div><div class="q">${esc(c.question)||"<span class='muted'>No question yet</span>"}</div>
+        <div class="muted" style="margin-top:4px">Deadline: ${fmtDate(c.deadline)}</div></div>
+        <span class="pill ${c.deadline?(open?"open":"closed"):""}">${c.deadline?(open?countdown(c.deadline):"Closed"):"No deadline"}</span></a>`;
+    }).join("")}
+    </div>`;
+}
+
+/* ---------- response page ---------- */
+async function renderPage(p){
+  const cfg = (await loadConfig())[p];
+  const open = isOpen(cfg);
+  const savedName = localStorage.getItem("name")||"";
+  app.innerHTML = `
+    <header><a href="#/">← All pages</a><a href="#/admin">${isAdmin()?"Admin":""}</a></header>
+    <div class="card">
+      <div class="muted" style="letter-spacing:.08em;text-transform:uppercase;font-size:12px">Page ${p}</div>
+      <div class="question">${esc(cfg.question)||"<span class='muted'>No question has been set yet.</span>"}</div>
+      <div class="deadline">${cfg.deadline?`Deadline: <strong>${fmtDate(cfg.deadline)}</strong> · <span id="cd">${countdown(cfg.deadline)}</span>`:"No deadline set."}</div>
+    </div>
+    <div class="card">
+      <label for="name">Your name</label>
+      <input id="name" value="${esc(savedName)}" placeholder="First and last name" ${open?"":"disabled"} autocomplete="name">
+      <label for="txt">Your response</label>
+      <textarea id="txt" placeholder="${open?"Type here — it saves automatically.":"Responses are closed."}" ${open?"":"disabled"}></textarea>
+      <div class="row" style="margin-top:10px;justify-content:space-between">
+        <span class="status" id="st">${open?(savedName?"":"Enter your name to begin."):"The deadline has passed. Your response is locked."}</span>
+      </div>
+    </div>`;
+
+  const nameEl=document.getElementById("name"), txt=document.getElementById("txt"), st=document.getElementById("st");
+  let loadedFor=null, timer=null;
+
+  async function loadResponse(){
+    const name=nameEl.value.trim(); if(!name){txt.value="";loadedFor=null;return}
+    const id=`${p}_${slug(name)}`; if(id===loadedFor) return;
+    loadedFor=id; txt.value=""; st.textContent="Loading…";
+    const snap=await getDoc(doc(db,"responses",id));
+    if(snap.exists()){ txt.value=snap.data().text||""; st.textContent="Loaded your saved response." }
+    else st.textContent= open?"":"No response was recorded under this name.";
+  }
+  async function save(){
+    const name=nameEl.value.trim(); if(!name){st.textContent="Enter your name to save.";return}
+    if(!isOpen(cfg)){ st.textContent="Deadline passed — not saved."; lock(); return }
+    localStorage.setItem("name",name);
+    const id=`${p}_${slug(name)}`;
+    st.textContent="Saving…";
+    try{
+      await setDoc(doc(db,"responses",id),{page:p,name,nameKey:slug(name),text:txt.value,updatedAt:serverTimestamp()},{merge:true});
+      st.textContent="Saved "+new Date().toLocaleTimeString([], {timeStyle:"short"});
+    }catch(e){ st.innerHTML=`<span class="err">Save failed: ${esc(e.message)}</span>` }
+  }
+  function lock(){ txt.disabled=true; nameEl.disabled=true; st.textContent="The deadline has passed. Your response is locked."; }
+
+  nameEl.addEventListener("change",loadResponse);
+  nameEl.addEventListener("blur",loadResponse);
+  txt.addEventListener("input",()=>{ st.textContent="Unsaved…"; clearTimeout(timer); timer=setTimeout(save,700) });
+  if(savedName) loadResponse();
+
+  if(cfg.deadline){
+    const cd=document.getElementById("cd");
+    const tick=setInterval(()=>{ if(!document.getElementById("cd")){clearInterval(tick);return}
+      cd.textContent=countdown(cfg.deadline); if(!isOpen(cfg)){ lock(); clearInterval(tick) } },15000);
+  }
+}
+
+/* ---------- admin ---------- */
+async function renderAdmin(){
+  if(!isAdmin()){
+    app.innerHTML=`
+      <header><a href="#/">← Back</a></header>
+      <div class="card"><h2>Admin</h2>
+        <label for="code">Admin code</label>
+        <form id="f" class="row"><input id="code" type="password" autocomplete="off" style="max-width:260px"><button>Enter</button></form>
+        <p class="status err" id="e"></p></div>`;
+    document.getElementById("f").addEventListener("submit",ev=>{ev.preventDefault();
+      if(document.getElementById("code").value===ADMIN_CODE){sessionStorage.setItem("admin","1");renderAdmin()}
+      else document.getElementById("e").textContent="Incorrect code."});
+    document.getElementById("code").focus();
+    return;
+  }
+  const cfg=await loadConfig();
+  app.innerHTML=`
+    <header><a href="#/">← All pages</a><a href="#" id="out">Log out</a></header>
+    <h1>Admin</h1><p class="muted">Edit questions and deadlines, and read responses. Changes are live immediately.</p>
+    <div class="card">
+      <h2>Questions &amp; deadlines</h2>
+      ${PAGES.map(p=>`
+        <div style="padding:14px 0;border-top:1px solid var(--line)">
+          <div class="muted" style="font-size:12px;letter-spacing:.08em;text-transform:uppercase">Page ${p} · <a href="#/${p}">view</a></div>
+          <label>Question</label><textarea data-q="${p}" style="min-height:70px">${esc(cfg[p].question)}</textarea>
+          <label>Deadline (your local time; blank = no deadline)</label>
+          <div class="row"><input type="datetime-local" data-d="${p}" value="${toLocalInput(cfg[p].deadline)}" style="max-width:260px">
+            <button class="ghost" data-clear="${p}">Clear</button></div>
+        </div>`).join("")}
+      <div class="row" style="margin-top:16px"><button id="save">Save all</button><span class="status" id="st"></span></div>
+    </div>
+    <div class="card">
+      <h2>Responses</h2>
+      <div class="tabs">${PAGES.map(p=>`<button data-tab="${p}">Page ${p}</button>`).join("")}</div>
+      <div id="list" class="muted">Select a page.</div>
+    </div>`;
+
+  document.getElementById("out").onclick=e=>{e.preventDefault();sessionStorage.removeItem("admin");location.hash="#/"};
+  app.querySelectorAll("[data-clear]").forEach(b=>b.onclick=()=>app.querySelector(`[data-d="${b.dataset.clear}"]`).value="");
+  document.getElementById("save").onclick=async()=>{
+    const st=document.getElementById("st"); st.textContent="Saving…";
+    const out={};
+    for(const p of PAGES){
+      const dl=app.querySelector(`[data-d="${p}"]`).value;
+      out[p]={question:app.querySelector(`[data-q="${p}"]`).value.trim(), deadline: dl? new Date(dl).toISOString():""};
+    }
+    try{ await setDoc(doc(db,"config","pages"),out); st.textContent="Saved." }
+    catch(e){ st.innerHTML=`<span class="err">Save failed: ${esc(e.message)}</span>` }
+  };
+
+  const list=document.getElementById("list");
+  function showTab(p){
+    app.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("on",b.dataset.tab===p));
+    if(unsub){unsub()}
+    list.innerHTML="Loading…";
+    unsub=onSnapshot(query(collection(db,"responses"),where("page","==",p)),snap=>{
+      const rows=snap.docs.map(d=>d.data()).sort((a,b)=>(b.updatedAt?.toMillis?.()||0)-(a.updatedAt?.toMillis?.()||0));
+      if(!rows.length){list.innerHTML="<span class='muted'>No responses yet.</span>";return}
+      list.innerHTML=`<p class="muted">${rows.length} response${rows.length===1?"":"s"}</p>`+rows.map(r=>`
+        <div class="resp"><span class="who">${esc(r.name)}</span><span class="when">${r.updatedAt?.toDate? r.updatedAt.toDate().toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"}):""}</span>
+        <div class="txt">${esc(r.text)||"<span class='muted'>(empty)</span>"}</div></div>`).join("");
+    },e=>{list.innerHTML=`<span class="err">${esc(e.message)}</span>`});
+  }
+  app.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+  showTab("1");
+}
+</script>
+</body>
+</html>
