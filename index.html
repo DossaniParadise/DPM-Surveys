@@ -107,7 +107,7 @@ const ADMIN_CODE = "LG2026";
 
 /* ================================================================ */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, collection, query, where,
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, writeBatch, collection, query, where,
          onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const app = document.getElementById("app");
@@ -429,11 +429,25 @@ async function renderAdmin(){
     if(unsub){unsub()}
     list.innerHTML="Loading…";
     unsub=onSnapshot(query(collection(db,"responses"),where("page","==",p)),snap=>{
-      const rows=snap.docs.map(d=>d.data()).sort((a,b)=>(b.updatedAt?.toMillis?.()||0)-(a.updatedAt?.toMillis?.()||0));
+      const rows=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.updatedAt?.toMillis?.()||0)-(a.updatedAt?.toMillis?.()||0));
       if(!rows.length){list.innerHTML="<span class='muted'>No responses yet.</span>";return}
-      list.innerHTML=`<p class="muted">${rows.length} response${rows.length===1?"":"s"}</p>`+rows.map(r=>`
-        <div class="resp"><span class="who">${esc(r.name)}</span><span class="when">${r.updatedAt?.toDate? r.updatedAt.toDate().toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"}):""}</span>
+      list.innerHTML=`<div class="row" style="justify-content:space-between;margin-bottom:6px"><span class="muted">${rows.length} response${rows.length===1?"":"s"}</span>
+          <button class="danger" type="button" id="clearall" style="padding:4px 10px;font-size:13px">Clear all for page ${p}</button></div>`
+        +rows.map(r=>`
+        <div class="resp"><div class="row" style="justify-content:space-between">
+          <span><span class="who">${esc(r.name)}</span><span class="when">${r.updatedAt?.toDate? r.updatedAt.toDate().toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"}):""}</span></span>
+          <button class="ghost" type="button" data-del="${esc(r.id)}" style="padding:2px 8px;font-size:12px">Delete</button></div>
         <div class="txt">${esc(r.text)||"<span class='muted'>(empty)</span>"}</div></div>`).join("");
+      list.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
+        if(!confirm("Delete this response? This can't be undone.")) return;
+        b.disabled=true; try{ await deleteDoc(doc(db,"responses",b.dataset.del)); }catch(e){ alert("Delete failed: "+e.message); b.disabled=false; }
+      });
+      document.getElementById("clearall").onclick=async()=>{
+        if(!confirm(`Delete ALL ${rows.length} response${rows.length===1?"":"s"} for page ${p}? This can't be undone.`)) return;
+        try{
+          for(let i=0;i<rows.length;i+=400){ const b=writeBatch(db); rows.slice(i,i+400).forEach(r=>b.delete(doc(db,"responses",r.id))); await b.commit(); }
+        }catch(e){ alert("Clear failed: "+e.message) }
+      };
     },e=>{list.innerHTML=`<span class="err">${esc(e.message)}</span>`});
   }
 
