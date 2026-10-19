@@ -23,8 +23,8 @@
   .muted{color:var(--muted);font-size:14px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px;margin-bottom:16px}
   .grid{display:grid;gap:12px}
-  .pagelink{display:flex;justify-content:space-between;align-items:center;gap:12px;text-decoration:none;color:inherit;padding:18px 20px}
-  .pagelink:hover{border-color:var(--accent)}
+  .pagelink{display:flex;justify-content:space-between;align-items:center;gap:12px;text-decoration:none;color:inherit;padding:18px 20px;border-left:6px solid var(--pc,var(--line))}
+  .pagelink:hover{border-color:var(--accent);border-left-color:var(--pc,var(--accent))}
   .pagelink .n{font-size:13px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
   .pagelink .q{font-weight:600;margin-top:2px}
   .pill{font-size:12px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
@@ -37,6 +37,7 @@
   textarea[disabled],input[disabled]{opacity:.7;background:rgba(127,127,127,.06)}
   button{font:inherit;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);padding:9px 16px;border-radius:8px}
   button.ghost{background:transparent;color:var(--text);border-color:var(--line)}
+  button.danger{background:transparent;color:var(--danger);border-color:var(--danger)}
   button:disabled{opacity:.5;cursor:default}
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .status{font-size:13px;color:var(--muted);min-height:1.2em}
@@ -53,17 +54,29 @@
   .tabs button{padding:6px 12px}
   .tabs button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
   .tabs button:not(.on){background:transparent;color:var(--text);border-color:var(--line)}
-  code{font-size:13px;background:rgba(127,127,127,.12);padding:2px 6px;border-radius:4px}
+  .card.themed{background:var(--pc);color:var(--pc-ink);border-color:transparent}
+  .card.themed .muted,.card.themed .deadline{color:var(--pc-ink);opacity:.8}
+  .card.themed .deadline strong{color:var(--pc-ink)}
+  input[type=color]{width:48px;height:36px;padding:2px;cursor:pointer}
+  .swatches{display:flex;gap:6px;flex-wrap:wrap}
+  .swatches button{width:26px;height:26px;padding:0;border-radius:50%;border:2px solid var(--line)}
+  .editor{padding:16px 0;border-top:1px solid var(--line)}
+  .editor .head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .editor .head .muted{font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+  .qrgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px}
+  .qr{text-align:center}
+  .qr .box{display:inline-block;background:#fff;padding:10px;border-radius:8px}
+  .qr .box img,.qr .box canvas{display:block}
+  .qr .lbl{font-weight:600;margin-top:8px}
+  .qr .url{font-size:11px;color:var(--muted);word-break:break-all}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
 <div class="wrap" id="app"><p class="muted">Loading…</p></div>
 
 <script type="module">
-/* ========================================================================
-   1. FIREBASE CONFIG — paste the config object from your Firebase project
-      (Project settings → Your apps → Web app → firebaseConfig).
-   ======================================================================== */
+/* ======================= FIREBASE CONFIG ======================= */
 const firebaseConfig = {
   apiKey: "AIzaSyBaQwuS2P04Xutoe0PaTRoba7CKbqqHR-Q",
   authDomain: "dpm-surveys.firebaseapp.com",
@@ -73,31 +86,25 @@ const firebaseConfig = {
   appId: "1:84434479748:web:c2f2869eff9640a71d30d1"
 };
 
-/* Admin code. NOTE: anything in this file is visible to anyone who views
-   source. This gate keeps casual users out of the admin screen; real
-   protection for your data comes from the Firestore rules (see README
-   notes in chat). */
+/* Admin code. Visible to anyone who views source — the Firestore rules
+   are what really protect the data. */
 const ADMIN_CODE = "LG2026";
-const PAGES = ["1","2","3","4"];
 
-/* ======================================================================== */
+/* ================================================================ */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc, collection, query, where,
          onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const app = document.getElementById("app");
 let db;
-try {
-  db = getFirestore(initializeApp(firebaseConfig));
-} catch (e) {
-  app.innerHTML = `<div class="card"><p class="err">Firebase failed to initialise. Paste your firebaseConfig into index.html.</p><p class="muted">${esc(String(e))}</p></div>`;
-}
+try { db = getFirestore(initializeApp(firebaseConfig)); }
+catch (e) { app.innerHTML = `<div class="card"><p class="err">Firebase failed to initialise.</p><p class="muted">${esc(String(e))}</p></div>`; }
 
 /* ---------- helpers ---------- */
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function slug(s){return s.trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"").slice(0,60)}
 function fmtDate(iso){ if(!iso) return "none set"; const d=new Date(iso); return isNaN(d)?"invalid":d.toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"}) }
-function isOpen(cfg){ if(!cfg?.deadline) return true; return Date.now() < new Date(cfg.deadline).getTime() }
+function isOpen(pg){ if(!pg?.deadline) return true; return Date.now() < new Date(pg.deadline).getTime() }
 function toLocalInput(iso){ if(!iso) return ""; const d=new Date(iso); const p=n=>String(n).padStart(2,"0");
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}` }
 function countdown(iso){
@@ -106,12 +113,29 @@ function countdown(iso){
   if(d>0) return `${d}d ${h%24}h left`; if(h>0) return `${h}h ${m%60}m left`; return `${m}m left`;
 }
 const isAdmin = ()=> sessionStorage.getItem("admin")==="1";
+const SWATCHES=["#2f5d50","#1f4e79","#6a3d9a","#a33a2e","#b8651b","#1e7a6d","#3b3b3b","#d9c27a","#9ecae1","#f4cccc"];
+function inkFor(hex){
+  if(!/^#[0-9a-f]{6}$/i.test(hex||"")) return "";
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return (0.2126*r+0.7152*g+0.0722*b)/255 > 0.6 ? "#1c1b19" : "#ffffff";
+}
+function themeStyle(color){ return color? `style="--pc:${esc(color)};--pc-ink:${inkFor(color)}"` : "" }
+const siteBase = ()=> location.origin + location.pathname;
+function makeQR(el,text,size=160){ el.innerHTML=""; new QRCode(el,{text,width:size,height:size,correctLevel:QRCode.CorrectLevel.M}); }
 
-/* ---------- data ---------- */
+/* ---------- data ----------
+   config/pages = { order:["1","2",...], pages:{ "1":{question,deadline,color}, ... } } */
+const blank = ()=>({question:"",deadline:"",color:""});
 async function loadConfig(){
   const snap = await getDoc(doc(db,"config","pages"));
-  const data = snap.exists()? snap.data() : {};
-  for(const p of PAGES) data[p] ??= {question:"", deadline:""};
+  let data = snap.exists()? snap.data() : null;
+  if(!data){ data={order:["1","2","3","4"],pages:{}}; }
+  else if(!Array.isArray(data.order)){ // migrate old flat shape {"1":{...},"2":{...}}
+    const ids=Object.keys(data).filter(k=>/^\d+$/.test(k)).sort((a,b)=>a-b);
+    data={order:ids.length?ids:["1","2","3","4"], pages:Object.fromEntries(ids.map(k=>[k,data[k]]))};
+  }
+  data.pages ??= {};
+  for(const id of data.order){ data.pages[id]={...blank(),...(data.pages[id]||{})}; }
   return data;
 }
 
@@ -122,7 +146,7 @@ function route(){
   if(!db) return;
   const h = location.hash.replace(/^#\/?/,"");
   if(h==="admin") return renderAdmin();
-  if(PAGES.includes(h)) return renderPage(h);
+  if(/^\d+$/.test(h)) return renderPage(h);
   renderIndex();
 }
 window.addEventListener("hashchange",route);
@@ -135,24 +159,29 @@ async function renderIndex(){
     <header><div><h1>Questions</h1><p class="muted">Pick a page to respond.</p></div>
       <a href="#/admin">${isAdmin()?"Admin":"Admin login"}</a></header>
     <div class="grid">
-    ${PAGES.map(p=>{
-      const c=cfg[p]; const open=isOpen(c);
-      return `<a class="card pagelink" href="#/${p}">
-        <div><div class="n">Page ${p}</div><div class="q">${esc(c.question)||"<span class='muted'>No question yet</span>"}</div>
+    ${cfg.order.length? cfg.order.map(id=>{
+      const c=cfg.pages[id]; const open=isOpen(c);
+      return `<a class="card pagelink" href="#/${id}" ${c.color?`style="--pc:${esc(c.color)}"`:""}>
+        <div><div class="n">Page ${id}</div><div class="q">${esc(c.question)||"<span class='muted'>No question yet</span>"}</div>
         <div class="muted" style="margin-top:4px">Deadline: ${fmtDate(c.deadline)}</div></div>
         <span class="pill ${c.deadline?(open?"open":"closed"):""}">${c.deadline?(open?countdown(c.deadline):"Closed"):"No deadline"}</span></a>`;
-    }).join("")}
+    }).join("") : `<div class="card muted">No pages yet.</div>`}
     </div>`;
 }
 
 /* ---------- response page ---------- */
 async function renderPage(p){
-  const cfg = (await loadConfig())[p];
+  const all = await loadConfig();
+  if(!all.order.includes(p)){
+    app.innerHTML=`<header><a href="#/">← All pages</a></header><div class="card"><h2>Page ${esc(p)} doesn't exist</h2><p class="muted">Check the link, or go back to the list of pages.</p></div>`;
+    return;
+  }
+  const cfg = all.pages[p];
   const open = isOpen(cfg);
   const savedName = localStorage.getItem("name")||"";
   app.innerHTML = `
     <header><a href="#/">← All pages</a><a href="#/admin">${isAdmin()?"Admin":""}</a></header>
-    <div class="card">
+    <div class="card ${cfg.color?"themed":""}" ${themeStyle(cfg.color)}>
       <div class="muted" style="letter-spacing:.08em;text-transform:uppercase;font-size:12px">Page ${p}</div>
       <div class="question">${esc(cfg.question)||"<span class='muted'>No question has been set yet.</span>"}</div>
       <div class="deadline">${cfg.deadline?`Deadline: <strong>${fmtDate(cfg.deadline)}</strong> · <span id="cd">${countdown(cfg.deadline)}</span>`:"No deadline set."}</div>
@@ -218,44 +247,114 @@ async function renderAdmin(){
     document.getElementById("code").focus();
     return;
   }
-  const cfg=await loadConfig();
+
+  const draft = await loadConfig();   // in-memory working copy; written on Save
+  let saved = JSON.stringify(draft);
+
   app.innerHTML=`
     <header><a href="#/">← All pages</a><a href="#" id="out">Log out</a></header>
-    <h1>Admin</h1><p class="muted">Edit questions and deadlines, and read responses. Changes are live immediately.</p>
+    <h1>Admin</h1><p class="muted">Add or remove pages, edit questions, deadlines and colors, and read responses.</p>
     <div class="card">
-      <h2>Questions &amp; deadlines</h2>
-      ${PAGES.map(p=>`
-        <div style="padding:14px 0;border-top:1px solid var(--line)">
-          <div class="muted" style="font-size:12px;letter-spacing:.08em;text-transform:uppercase">Page ${p} · <a href="#/${p}">view</a></div>
-          <label>Question</label><textarea data-q="${p}" style="min-height:70px">${esc(cfg[p].question)}</textarea>
-          <label>Deadline (your local time; blank = no deadline)</label>
-          <div class="row"><input type="datetime-local" data-d="${p}" value="${toLocalInput(cfg[p].deadline)}" style="max-width:260px">
-            <button class="ghost" data-clear="${p}">Clear</button></div>
-        </div>`).join("")}
-      <div class="row" style="margin-top:16px"><button id="save">Save all</button><span class="status" id="st"></span></div>
+      <h2>Pages</h2>
+      <div id="editors"></div>
+      <div class="row" style="margin-top:16px;justify-content:space-between">
+        <button class="ghost" id="add">+ Add page</button>
+        <div class="row"><span class="status" id="st"></span><button id="save">Save all</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>QR codes</h2>
+      <p class="muted">Scan or download. Codes point at this site's current address.</p>
+      <div class="qrgrid" id="qrs"></div>
     </div>
     <div class="card">
       <h2>Responses</h2>
-      <div class="tabs">${PAGES.map(p=>`<button data-tab="${p}">Page ${p}</button>`).join("")}</div>
+      <div class="tabs" id="tabs"></div>
       <div id="list" class="muted">Select a page.</div>
     </div>`;
 
-  document.getElementById("out").onclick=e=>{e.preventDefault();sessionStorage.removeItem("admin");location.hash="#/"};
-  app.querySelectorAll("[data-clear]").forEach(b=>b.onclick=()=>app.querySelector(`[data-d="${b.dataset.clear}"]`).value="");
+  const editors=document.getElementById("editors"), st=document.getElementById("st");
+
+  /* --- editor list --- */
+  function paintEditors(){
+    editors.innerHTML = draft.order.length ? draft.order.map(id=>{ const pg=draft.pages[id]; return `
+      <div class="editor" data-id="${id}">
+        <div class="head"><span class="muted">Page ${id} · <a href="#/${id}">view</a></span>
+          <button class="danger" type="button" data-rm="${id}" style="padding:4px 10px;font-size:13px">Remove</button></div>
+        <label>Question</label><textarea data-q="${id}" style="min-height:70px">${esc(pg.question)}</textarea>
+        <label>Deadline (your local time; blank = no deadline)</label>
+        <div class="row"><input type="datetime-local" data-d="${id}" value="${toLocalInput(pg.deadline)}" style="max-width:260px">
+          <button class="ghost" type="button" data-clear="${id}">Clear</button></div>
+        <label>Page color</label>
+        <div class="row">
+          <input type="color" data-c="${id}" value="${esc(pg.color||"#2f5d50")}">
+          <div class="swatches">${SWATCHES.map(s=>`<button type="button" data-sw="${id}" data-color="${s}" style="background:${s}" title="${s}"></button>`).join("")}</div>
+          <button class="ghost" type="button" data-nocolor="${id}">Default</button>
+          <span class="muted" data-cl="${id}">${pg.color||"default"}</span>
+        </div>
+      </div>`}).join("") : `<p class="muted">No pages. Click “Add page” to create one.</p>`;
+
+    const setColor=(id,c)=>{ draft.pages[id].color=c; editors.querySelector(`[data-cl="${id}"]`).textContent=c||"default"; if(c) editors.querySelector(`[data-c="${id}"]`).value=c; };
+    editors.querySelectorAll("[data-q]").forEach(t=>t.oninput=()=>draft.pages[t.dataset.q].question=t.value);
+    editors.querySelectorAll("[data-d]").forEach(i=>i.oninput=()=>draft.pages[i.dataset.d].deadline=i.value?new Date(i.value).toISOString():"");
+    editors.querySelectorAll("[data-clear]").forEach(b=>b.onclick=()=>{ editors.querySelector(`[data-d="${b.dataset.clear}"]`).value=""; draft.pages[b.dataset.clear].deadline=""; });
+    editors.querySelectorAll("[data-c]").forEach(i=>i.oninput=()=>setColor(i.dataset.c,i.value));
+    editors.querySelectorAll("[data-sw]").forEach(b=>b.onclick=()=>setColor(b.dataset.sw,b.dataset.color));
+    editors.querySelectorAll("[data-nocolor]").forEach(b=>b.onclick=()=>setColor(b.dataset.nocolor,""));
+    editors.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{
+      const id=b.dataset.rm;
+      if(!confirm(`Remove page ${id}? Existing responses are kept in the database but the page will no longer be reachable. Takes effect when you Save.`)) return;
+      draft.order=draft.order.filter(x=>x!==id); delete draft.pages[id];
+      paintEditors(); markDirty();
+    });
+  }
+  function markDirty(){ st.textContent = JSON.stringify(draft)===saved ? "" : "Unsaved changes"; }
+  editors.addEventListener("input",markDirty);
+
+  document.getElementById("add").onclick=()=>{
+    const next = String(draft.order.reduce((m,x)=>Math.max(m,+x),0)+1);
+    draft.order.push(next); draft.pages[next]=blank();
+    paintEditors(); markDirty();
+    editors.querySelector(`[data-q="${next}"]`)?.focus();
+    editors.lastElementChild?.scrollIntoView({behavior:"smooth",block:"nearest"});
+  };
+
   document.getElementById("save").onclick=async()=>{
-    const st=document.getElementById("st"); st.textContent="Saving…";
-    const out={};
-    for(const p of PAGES){
-      const dl=app.querySelector(`[data-d="${p}"]`).value;
-      out[p]={question:app.querySelector(`[data-q="${p}"]`).value.trim(), deadline: dl? new Date(dl).toISOString():""};
-    }
-    try{ await setDoc(doc(db,"config","pages"),out); st.textContent="Saved." }
+    st.textContent="Saving…";
+    const out={order:[...draft.order],pages:{}};
+    for(const id of draft.order){ const pg=draft.pages[id]; out.pages[id]={question:(pg.question||"").trim(),deadline:pg.deadline||"",color:pg.color||""}; }
+    try{ await setDoc(doc(db,"config","pages"),out); saved=JSON.stringify(draft); st.textContent="Saved."; paintQRs(); paintTabs(); }
     catch(e){ st.innerHTML=`<span class="err">Save failed: ${esc(e.message)}</span>` }
   };
 
-  const list=document.getElementById("list");
+  /* --- QR codes (saved pages only) --- */
+  const savedOrder=()=>JSON.parse(saved).order;
+  function paintQRs(){
+    const q=document.getElementById("qrs");
+    q.innerHTML=["",...savedOrder()].map(id=>`<div class="qr"><div class="box" data-qr="${id}"></div>
+      <div class="lbl">${id?`Page ${id}`:"Home"}</div><div class="url">${esc(siteBase()+"#/"+id)}</div>
+      <button class="ghost" style="margin-top:6px" data-dl="${id}">Download PNG</button></div>`).join("");
+    q.querySelectorAll("[data-qr]").forEach(el=>makeQR(el, siteBase()+"#/"+el.dataset.qr));
+    q.querySelectorAll("[data-dl]").forEach(b=>b.onclick=()=>{
+      const box=q.querySelector(`[data-qr="${b.dataset.dl}"]`);
+      const src=box.querySelector("canvas")?.toDataURL("image/png") || box.querySelector("img")?.src; if(!src) return;
+      const a=document.createElement("a"); a.href=src; a.download=`qr-${b.dataset.dl||"home"}.png`; a.click();
+    });
+  }
+
+  /* --- responses --- */
+  const list=document.getElementById("list"), tabs=document.getElementById("tabs");
+  let currentTab=null;
+  function paintTabs(){
+    const ids=savedOrder();
+    tabs.innerHTML=ids.map(id=>`<button data-tab="${id}">Page ${id}</button>`).join("")||`<span class="muted">No pages.</span>`;
+    tabs.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+    if(!ids.includes(currentTab)) currentTab=ids[0]||null;
+    if(currentTab) showTab(currentTab); else { if(unsub){unsub();unsub=null} list.innerHTML=""; }
+  }
   function showTab(p){
-    app.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("on",b.dataset.tab===p));
+    currentTab=p;
+    tabs.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("on",b.dataset.tab===p));
     if(unsub){unsub()}
     list.innerHTML="Loading…";
     unsub=onSnapshot(query(collection(db,"responses"),where("page","==",p)),snap=>{
@@ -266,8 +365,9 @@ async function renderAdmin(){
         <div class="txt">${esc(r.text)||"<span class='muted'>(empty)</span>"}</div></div>`).join("");
     },e=>{list.innerHTML=`<span class="err">${esc(e.message)}</span>`});
   }
-  app.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
-  showTab("1");
+
+  document.getElementById("out").onclick=e=>{e.preventDefault();sessionStorage.removeItem("admin");location.hash="#/"};
+  paintEditors(); paintQRs(); paintTabs();
 }
 </script>
 </body>
